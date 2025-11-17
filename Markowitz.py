@@ -62,7 +62,12 @@ class EqualWeightPortfolio:
         """
         TODO: Complete Task 1 Below
         """
+        n_assets = len(assets)
+        equal_w = 1.0 / n_assets
 
+        self.portfolio_weights[assets] = equal_w
+
+        self.portfolio_weights[self.exclude] = 0.0
         """
         TODO: Complete Task 1 Above
         """
@@ -113,9 +118,31 @@ class RiskParityPortfolio:
         """
         TODO: Complete Task 2 Below
         """
+         # 對每一個 rebalancing 日，用過去 lookback 天的報酬計算波動度
+        for i in range(self.lookback + 1, len(df)):
+            # 取過去 lookback 天的報酬
+            R_window = df_returns[assets].iloc[i - self.lookback : i]
 
+            # 每個資產的歷史波動度（標準差）
+            vol = R_window.std()
 
+            # 避免除以 0 或產生 inf
+            vol = vol.replace(0, np.nan)
+            inv_vol = 1.0 / vol
+            inv_vol = inv_vol.replace([np.inf, -np.inf], np.nan).fillna(0.0)
 
+            if inv_vol.sum() > 0:
+                w = inv_vol / inv_vol.sum()
+            else:
+                # 極端情況：全部 0，就平均分配
+                w = pd.Series(1.0 / len(assets), index=assets)
+
+            # 把這一天的權重寫進對應日期
+            self.portfolio_weights.loc[df.index[i], assets] = w.values
+
+        # 排除的資產（SPY）權重設為 0
+        self.portfolio_weights[self.exclude] = 0.0
+       
         """
         TODO: Complete Task 2 Above
         """
@@ -190,8 +217,20 @@ class MeanVariancePortfolio:
 
                 # Sample Code: Initialize Decision w and the Objective
                 # NOTE: You can modify the following code
-                w = model.addMVar(n, name="w", ub=1)
-                model.setObjective(w.sum(), gp.GRB.MAXIMIZE)
+                
+                # decision variables: 0 <= w_i <= 1
+                w = model.addMVar(n, lb=0.0, ub=1.0, name="w")
+
+                # budget constraint: sum w_i = 1
+                model.addConstr(w.sum() == 1.0, name="budget")
+
+                # quadratic term: w' Σ w
+                risk = w @ Sigma @ w
+                # linear term: μ' w
+                ret = mu @ w
+
+                # maximize μ' w - γ * w' Σ w
+                model.setObjective(ret - 0.5 * gamma * risk, gp.GRB.MAXIMIZE)
 
                 """
                 TODO: Complete Task 3 Above
